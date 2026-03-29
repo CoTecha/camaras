@@ -395,12 +395,9 @@ function conectarConId() {
 }
 
 function conectar(peerId) {
-  // Limpiar peer ID si viene de URL completa
-  if (peerId.includes('?view=')) {
-    peerId = peerId.split('?view=')[1].split('&')[0];
-  }
+  // Extraer peer ID si viene en URL completa
   if (peerId.includes('view=')) {
-    peerId = peerId.split('view=')[1].split('&')[0];
+    peerId = new URLSearchParams(peerId.includes('?') ? peerId.split('?')[1] : peerId).get('view') || peerId;
   }
   peerId = peerId.trim();
 
@@ -417,52 +414,69 @@ function conectar(peerId) {
 
   if (peer) { peer.destroy(); peer = null; }
 
+  const iceServers = [
+    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun1.l.google.com:19302' },
+    { urls: 'stun:stun2.l.google.com:19302' },
+    { urls: 'stun:stun3.l.google.com:19302' },
+  ];
+
   peer = new Peer({
     host: '0.peerjs.com', port: 443, path: '/', secure: true, debug: 0,
-    config: { iceServers: [
-      { urls: 'stun:stun.l.google.com:19302' },
-      { urls: 'stun:stun1.l.google.com:19302' }
-    ]}
+    config: { iceServers, sdpSemantics: 'unified-plan' }
   });
 
-  peer.on('open', () => {
-    const call = peer.call(peerId, getFakeStream());
+  peer.on('open', myId => {
+    document.getElementById('visor-status').textContent = 'Llamando a cámara…';
+    // Crear stream mínimo con canvas silencioso para poder hacer la llamada
+    const silentCanvas = document.createElement('canvas');
+    silentCanvas.width = 1; silentCanvas.height = 1;
+    const silentStream = silentCanvas.captureStream(1);
+    
+    const call = peer.call(peerId, silentStream);
     if (!call) {
       document.getElementById('visor-status').textContent = 'No se pudo conectar';
       document.getElementById('visor-status').className = 'visor-status vs-lost';
       return;
     }
+
     call.on('stream', remoteStream => {
       const vid = document.getElementById('remote-video');
       vid.srcObject = remoteStream;
-      vid.play().catch(() => {});
+      vid.play().catch(e => console.warn('autoplay:', e));
       noSig.style.display = 'none';
       document.getElementById('visor-status').className = 'visor-status vs-live';
       document.getElementById('visor-status').textContent = '● EN DIRECTO';
     });
+
     call.on('close', () => {
       noSig.style.display = 'flex';
       noSig.querySelector('p').textContent = 'Cámara desconectada';
       document.getElementById('visor-status').className = 'visor-status vs-lost';
       document.getElementById('visor-status').textContent = 'Desconectado';
     });
+
     call.on('error', err => {
+      console.error('call error', err);
       document.getElementById('visor-status').className = 'visor-status vs-lost';
-      document.getElementById('visor-status').textContent = 'Error de conexión';
+      document.getElementById('visor-status').textContent = 'Error de stream';
     });
-    // Timeout si no recibe stream en 15s
+
+    // Timeout 20s
     setTimeout(() => {
       if (noSig.style.display !== 'none') {
-        noSig.querySelector('p').textContent = 'Sin respuesta — verifica que el emisor esté activo';
+        noSig.querySelector('p').textContent = 'Sin respuesta — asegúrate de que el emisor esté activo y en la misma versión';
+        document.getElementById('visor-status').textContent = 'Sin respuesta';
+        document.getElementById('visor-status').className = 'visor-status vs-lost';
       }
-    }, 15000);
+    }, 20000);
   });
 
   peer.on('error', e => {
     document.getElementById('visor-status').className = 'visor-status vs-lost';
     if (e.type === 'peer-unavailable') {
+      noSig.querySelector('p').textContent = 'La cámara no está activa. Verifica que el emisor esté emitiendo.';
       document.getElementById('visor-status').textContent = 'Cámara no disponible';
-      noSig.querySelector('p').textContent = 'La cámara emisora no está activa. Asegúrate de que esté emitiendo.';
     } else {
       document.getElementById('visor-status').textContent = 'Error: ' + e.type;
     }
@@ -470,12 +484,8 @@ function conectar(peerId) {
   });
 }
 
+
 // PeerJS necesita un stream para hacer call() aunque sea mudo
-function getFakeStream() {
-  const ac = new AudioContext();
-  const dest = ac.createMediaStreamDestination();
-  return dest.stream;
-}
 
 // ─── INIT ───
 window.addEventListener('DOMContentLoaded', () => {
