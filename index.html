@@ -1,0 +1,409 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0">
+<meta name="theme-color" content="#0d1117">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="CoTecha Cam">
+<title>CoTecha — Cámaras</title>
+<script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+<style>
+:root{--gd:#0d1117;--g:#40916c;--gl:#74c69d;--gp:#d8f3dc;--ta:#00b4d8;--red:#ef4444;--ow:#f8fdf9;--td:#1b2d24;--tm:#5a7a68;}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:'Inter',sans-serif;background:var(--gd);color:white;min-height:100vh;overflow-x:hidden;}
+
+/* SELECTOR DE MODO */
+#mode-select{min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:2rem;background:radial-gradient(ellipse at 50% 0%,rgba(64,145,108,.2),transparent 70%),var(--gd);}
+.logo{text-align:center;margin-bottom:3rem;}
+.logo .icon{width:72px;height:72px;background:linear-gradient(135deg,var(--gl),var(--ta));border-radius:20px;display:flex;align-items:center;justify-content:center;margin:0 auto 1rem;font-size:32px;}
+.logo h1{font-size:2rem;font-weight:900;color:white;}
+.logo h1 span{color:var(--gl);}
+.logo p{color:rgba(255,255,255,.5);font-size:0.9rem;margin-top:0.3rem;}
+.mode-cards{display:grid;grid-template-columns:1fr 1fr;gap:1.25rem;width:100%;max-width:480px;}
+@media(max-width:400px){.mode-cards{grid-template-columns:1fr;}}
+.mode-card{background:rgba(255,255,255,.05);border:1.5px solid rgba(255,255,255,.1);border-radius:20px;padding:2rem 1.5rem;cursor:pointer;transition:all 0.25s;text-align:center;}
+.mode-card:hover{border-color:var(--gl);background:rgba(116,198,157,.1);transform:translateY(-4px);}
+.mode-card .micon{font-size:2.5rem;margin-bottom:0.75rem;}
+.mode-card h3{font-size:1rem;font-weight:800;margin-bottom:0.4rem;}
+.mode-card p{font-size:0.78rem;color:rgba(255,255,255,.5);line-height:1.4;}
+.back-link{margin-top:2rem;color:rgba(255,255,255,.4);font-size:0.82rem;text-decoration:none;display:flex;align-items:center;gap:0.4rem;}
+.back-link:hover{color:var(--gl);}
+
+/* EMISOR */
+#emisor-page{display:none;flex-direction:column;min-height:100vh;background:#000;}
+#cam-video{width:100%;height:calc(100vh - 200px);object-fit:cover;display:block;background:#000;}
+.cam-overlay{position:fixed;bottom:0;left:0;right:0;background:linear-gradient(transparent,rgba(0,0,0,.95));padding:1.5rem;z-index:10;}
+.cam-status{display:flex;align-items:center;gap:0.5rem;font-size:0.85rem;font-weight:600;margin-bottom:1rem;}
+.status-dot{width:10px;height:10px;border-radius:50%;flex-shrink:0;}
+.dot-idle{background:#64748b;}
+.dot-waiting{background:#f59e0b;animation:pulse 1s infinite;}
+.dot-live{background:#22c55e;animation:pulse 1.5s infinite;}
+.dot-error{background:var(--red);}
+@keyframes pulse{0%,100%{opacity:1;}50%{opacity:0.4;}}
+.qr-wrap{display:none;background:white;border-radius:16px;padding:1rem;margin-bottom:1rem;text-align:center;}
+#qr-canvas{display:block;margin:0 auto;}
+.qr-id{font-size:0.72rem;color:#64748b;margin-top:0.5rem;font-family:monospace;}
+.cam-btns{display:flex;gap:0.75rem;}
+.btn-cam{flex:1;padding:0.85rem;border:none;border-radius:50px;font-family:'Inter',sans-serif;font-size:0.9rem;font-weight:700;cursor:pointer;}
+.btn-start{background:linear-gradient(135deg,var(--g),var(--ta));color:white;}
+.btn-stop{background:var(--red);color:white;}
+.btn-flip{background:rgba(255,255,255,.1);border:1.5px solid rgba(255,255,255,.2);color:white;flex:0 0 52px;border-radius:50%;}
+.viewers-badge{background:rgba(34,197,94,.2);border:1px solid rgba(34,197,94,.3);color:#22c55e;padding:0.2rem 0.65rem;border-radius:20px;font-size:0.72rem;font-weight:700;margin-left:auto;}
+
+/* VISOR */
+#visor-page{display:none;flex-direction:column;min-height:100vh;background:#000;}
+#remote-video{width:100%;height:calc(100vh - 80px);object-fit:contain;background:#000;display:block;}
+.visor-bar{position:fixed;top:0;left:0;right:0;background:rgba(0,0,0,.8);backdrop-filter:blur(10px);padding:0.6rem 1rem;display:flex;align-items:center;gap:0.75rem;z-index:10;border-bottom:1px solid rgba(255,255,255,.1);}
+.visor-title{font-size:0.9rem;font-weight:700;flex:1;}
+.visor-status{font-size:0.75rem;font-weight:600;padding:0.2rem 0.65rem;border-radius:20px;}
+.vs-connecting{background:rgba(245,158,11,.2);color:#f59e0b;}
+.vs-live{background:rgba(34,197,94,.2);color:#22c55e;}
+.vs-lost{background:rgba(239,68,68,.2);color:var(--red);}
+.btn-vsback{background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.2);color:white;padding:0.3rem 0.75rem;border-radius:20px;font-family:'Inter',sans-serif;font-size:0.78rem;cursor:pointer;}
+.no-signal{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;color:rgba(255,255,255,.4);gap:1rem;background:#000;}
+.no-signal .icon{font-size:4rem;}
+.no-signal p{font-size:0.9rem;}
+
+/* ESCANER QR VISOR */
+#scanner-page{display:none;flex-direction:column;min-height:100vh;background:#000;align-items:center;justify-content:center;padding:2rem;}
+#scan-video{width:100%;max-width:400px;border-radius:16px;border:2px solid var(--gl);}
+.scan-hint{color:rgba(255,255,255,.6);font-size:0.85rem;margin-top:1rem;text-align:center;}
+.scan-manual{margin-top:1.5rem;width:100%;max-width:400px;}
+.scan-manual input{width:100%;padding:0.85rem 1rem;background:rgba(255,255,255,.08);border:1.5px solid rgba(255,255,255,.15);border-radius:12px;color:white;font-family:'Inter',sans-serif;font-size:0.9rem;outline:none;text-align:center;}
+.scan-manual input:focus{border-color:var(--gl);}
+.scan-manual input::placeholder{color:rgba(255,255,255,.3);}
+.btn-connect{width:100%;padding:0.85rem;background:linear-gradient(135deg,var(--g),var(--ta));color:white;border:none;border-radius:50px;font-family:'Inter',sans-serif;font-size:0.9rem;font-weight:700;cursor:pointer;margin-top:0.75rem;}
+.btn-back-scan{margin-top:1rem;color:rgba(255,255,255,.4);font-size:0.82rem;background:none;border:none;cursor:pointer;font-family:'Inter',sans-serif;}
+</style>
+</head>
+<body>
+
+<!-- SELECTOR DE MODO -->
+<div id="mode-select">
+  <div class="logo">
+    <div class="icon">📷</div>
+    <h1>Co<span>Techa</span> Cam</h1>
+    <p>Vigilancia en tiempo real</p>
+  </div>
+  <div class="mode-cards">
+    <div class="mode-card" onclick="iniciarEmisor()">
+      <div class="micon">📡</div>
+      <h3>Emitir</h3>
+      <p>Este móvil actúa como cámara y genera un QR para que otros lo vean</p>
+    </div>
+    <div class="mode-card" onclick="iniciarVisor()">
+      <div class="micon">👁️</div>
+      <h3>Ver cámara</h3>
+      <p>Escanea el QR del móvil emisor para ver su cámara en directo</p>
+    </div>
+  </div>
+  <a href="https://cotecha.github.io/app" class="back-link">← Volver al inicio</a>
+</div>
+
+<!-- EMISOR -->
+<div id="emisor-page">
+  <video id="cam-video" autoplay playsinline muted></video>
+  <div class="cam-overlay">
+    <div class="cam-status" id="cam-status">
+      <div class="status-dot dot-idle" id="status-dot"></div>
+      <span id="status-text">Cámara lista — pulsa Iniciar</span>
+      <span class="viewers-badge" id="viewers-badge" style="display:none;">0 viendo</span>
+    </div>
+    <div class="qr-wrap" id="qr-wrap">
+      <canvas id="qr-canvas"></canvas>
+      <div class="qr-id" id="qr-id-text"></div>
+      <div style="font-size:0.72rem;color:#94a3b8;margin-top:0.3rem;">Escanea desde el móvil visor</div>
+    </div>
+    <div class="cam-btns">
+      <button class="btn-cam btn-flip" id="btn-flip" onclick="flipCamera()" title="Cambiar cámara">🔄</button>
+      <button class="btn-cam btn-start" id="btn-start" onclick="iniciarEmision()">▶ Iniciar emisión</button>
+    </div>
+  </div>
+</div>
+
+<!-- ESCANER VISOR -->
+<div id="scanner-page">
+  <video id="scan-video" autoplay playsinline muted></video>
+  <div class="scan-hint">Apunta al QR del móvil emisor</div>
+  <div class="scan-manual">
+    <input type="text" id="peer-id-input" placeholder="O introduce el ID manualmente…"/>
+    <button class="btn-connect" onclick="conectarConId()">Conectar</button>
+  </div>
+  <button class="btn-back-scan" onclick="volverModo()">← Volver</button>
+</div>
+
+<!-- VISOR -->
+<div id="visor-page">
+  <div class="visor-bar">
+    <button class="btn-vsback" onclick="volverModo()">← Salir</button>
+    <span class="visor-title">📷 CoTecha Cam</span>
+    <span class="visor-status vs-connecting" id="visor-status">Conectando…</span>
+  </div>
+  <div style="position:relative;height:calc(100vh - 80px);margin-top:48px;">
+    <video id="remote-video" autoplay playsinline style="width:100%;height:100%;object-fit:contain;background:#000;display:block;"></video>
+    <div class="no-signal" id="no-signal">
+      <div class="icon">📡</div>
+      <p>Conectando con la cámara…</p>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
+<script>
+let peer = null;
+let localStream = null;
+let facingMode = 'environment';
+let activeConns = [];
+let scanInterval = null;
+let scanStream = null;
+
+// ─── NAVEGACIÓN ───
+function showPage(id) {
+  ['mode-select','emisor-page','scanner-page','visor-page'].forEach(p => {
+    const el = document.getElementById(p);
+    el.style.display = 'none';
+  });
+  const target = document.getElementById(id);
+  target.style.display = id === 'mode-select' ? 'flex' : 'flex';
+  target.style.flexDirection = 'column';
+}
+
+function volverModo() {
+  limpiarTodo();
+  showPage('mode-select');
+}
+
+function limpiarTodo() {
+  if (scanInterval) { clearInterval(scanInterval); scanInterval = null; }
+  if (scanStream) { scanStream.getTracks().forEach(t => t.stop()); scanStream = null; }
+  if (localStream) { localStream.getTracks().forEach(t => t.stop()); localStream = null; }
+  if (peer) { peer.destroy(); peer = null; }
+  activeConns = [];
+  document.getElementById('cam-video').srcObject = null;
+  document.getElementById('remote-video').srcObject = null;
+  document.getElementById('scan-video').srcObject = null;
+  document.getElementById('qr-wrap').style.display = 'none';
+  document.getElementById('btn-start').className = 'btn-cam btn-start';
+  document.getElementById('btn-start').textContent = '▶ Iniciar emisión';
+  document.getElementById('btn-start').onclick = iniciarEmision;
+  setStatus('idle', 'Cámara lista — pulsa Iniciar');
+}
+
+// ─── EMISOR ───
+async function iniciarEmisor() {
+  showPage('emisor-page');
+  await abrirCamara();
+}
+
+async function abrirCamara() {
+  try {
+    if (localStream) localStream.getTracks().forEach(t => t.stop());
+    localStream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode, width: { ideal: 1280 }, height: { ideal: 720 } },
+      audio: false
+    });
+    document.getElementById('cam-video').srcObject = localStream;
+  } catch (e) {
+    setStatus('error', 'Error cámara: ' + e.message);
+  }
+}
+
+async function flipCamera() {
+  facingMode = facingMode === 'environment' ? 'user' : 'environment';
+  await abrirCamara();
+  // Si ya está emitiendo, reemplazar tracks en conexiones activas
+  if (peer && activeConns.length > 0) {
+    const newTrack = localStream.getVideoTracks()[0];
+    activeConns.forEach(conn => {
+      if (conn.peerConnection) {
+        const sender = conn.peerConnection.getSenders().find(s => s.track?.kind === 'video');
+        if (sender) sender.replaceTrack(newTrack);
+      }
+    });
+  }
+}
+
+async function iniciarEmision() {
+  setStatus('waiting', 'Generando código…');
+  // Crear peer con ID aleatorio corto
+  const peerId = 'cam-' + Math.random().toString(36).substr(2, 8);
+  peer = new Peer(peerId, {
+    host: '0.peerjs.com',
+    port: 443,
+    path: '/',
+    secure: true,
+    config: {
+      iceServers: [
+        { urls: 'stun:stun.l.google.com:19302' },
+        { urls: 'stun:global.stun.twilio.com:3478' }
+      ]
+    }
+  });
+
+  peer.on('open', id => {
+    setStatus('waiting', 'Esperando conexión…');
+    generarQR(id);
+    document.getElementById('btn-start').className = 'btn-cam btn-stop';
+    document.getElementById('btn-start').textContent = '⏹ Detener';
+    document.getElementById('btn-start').onclick = detenerEmision;
+  });
+
+  peer.on('call', call => {
+    call.answer(localStream);
+    activeConns.push(call);
+    actualizarViewers();
+    setStatus('live', 'EN DIRECTO');
+
+    call.on('close', () => {
+      activeConns = activeConns.filter(c => c !== call);
+      actualizarViewers();
+      if (activeConns.length === 0) setStatus('waiting', 'Esperando conexión…');
+    });
+    call.on('error', () => {
+      activeConns = activeConns.filter(c => c !== call);
+      actualizarViewers();
+    });
+  });
+
+  peer.on('error', e => {
+    setStatus('error', 'Error: ' + e.message);
+  });
+}
+
+function detenerEmision() {
+  limpiarTodo();
+  abrirCamara();
+}
+
+function generarQR(id) {
+  const qrWrap = document.getElementById('qr-wrap');
+  const qrCanvas = document.getElementById('qr-canvas');
+  qrWrap.style.display = 'block';
+  document.getElementById('qr-id-text').textContent = id;
+  QRCode.toCanvas(qrCanvas, id, {
+    width: 160, margin: 1,
+    color: { dark: '#000000', light: '#ffffff' }
+  });
+}
+
+function actualizarViewers() {
+  const badge = document.getElementById('viewers-badge');
+  const n = activeConns.length;
+  badge.style.display = n > 0 ? 'inline-block' : 'none';
+  badge.textContent = n + (n === 1 ? ' viendo' : ' viendo');
+}
+
+function setStatus(state, text) {
+  const dot = document.getElementById('status-dot');
+  document.getElementById('status-text').textContent = text;
+  dot.className = 'status-dot dot-' + state;
+}
+
+// ─── VISOR ───
+async function iniciarVisor() {
+  showPage('scanner-page');
+  try {
+    scanStream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: 'environment' }, audio: false
+    });
+    const scanVideo = document.getElementById('scan-video');
+    scanVideo.srcObject = scanStream;
+    await scanVideo.play();
+    iniciarScanQR();
+  } catch (e) {
+    // Sin cámara — solo input manual
+    document.querySelector('.scan-hint').textContent = 'Introduce el ID manualmente';
+  }
+}
+
+function iniciarScanQR() {
+  const video = document.getElementById('scan-video');
+  const offCanvas = document.createElement('canvas');
+  const offCtx = offCanvas.getContext('2d');
+
+  scanInterval = setInterval(() => {
+    if (video.readyState !== video.HAVE_ENOUGH_DATA) return;
+    offCanvas.width = video.videoWidth;
+    offCanvas.height = video.videoHeight;
+    offCtx.drawImage(video, 0, 0);
+    const imgData = offCtx.getImageData(0, 0, offCanvas.width, offCanvas.height);
+    const code = jsQR(imgData.data, imgData.width, imgData.height, { inversionAttempts: 'dontInvert' });
+    if (code && code.data.startsWith('cam-')) {
+      clearInterval(scanInterval);
+      scanInterval = null;
+      conectar(code.data);
+    }
+  }, 250);
+}
+
+function conectarConId() {
+  const id = document.getElementById('peer-id-input').value.trim();
+  if (!id) { alert('Introduce un ID válido'); return; }
+  conectar(id);
+}
+
+function conectar(peerId) {
+  if (scanStream) { scanStream.getTracks().forEach(t => t.stop()); scanStream = null; }
+  if (scanInterval) { clearInterval(scanInterval); scanInterval = null; }
+
+  showPage('visor-page');
+  document.getElementById('no-signal').style.display = 'flex';
+  document.getElementById('visor-status').className = 'visor-status vs-connecting';
+  document.getElementById('visor-status').textContent = 'Conectando…';
+
+  peer = new Peer({
+    host: '0.peerjs.com', port: 443, path: '/', secure: true,
+    config: { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] }
+  });
+
+  peer.on('open', () => {
+    const call = peer.call(peerId, getFakeStream());
+    call.on('stream', remoteStream => {
+      const vid = document.getElementById('remote-video');
+      vid.srcObject = remoteStream;
+      vid.play().catch(() => {});
+      document.getElementById('no-signal').style.display = 'none';
+      document.getElementById('visor-status').className = 'visor-status vs-live';
+      document.getElementById('visor-status').textContent = '● EN DIRECTO';
+    });
+    call.on('close', () => {
+      document.getElementById('no-signal').style.display = 'flex';
+      document.getElementById('no-signal').querySelector('p').textContent = 'Cámara desconectada';
+      document.getElementById('visor-status').className = 'visor-status vs-lost';
+      document.getElementById('visor-status').textContent = 'Desconectado';
+    });
+    call.on('error', () => {
+      document.getElementById('visor-status').className = 'visor-status vs-lost';
+      document.getElementById('visor-status').textContent = 'Error de conexión';
+    });
+  });
+
+  peer.on('error', e => {
+    document.getElementById('visor-status').className = 'visor-status vs-lost';
+    document.getElementById('visor-status').textContent = 'Error: ' + e.type;
+  });
+}
+
+// PeerJS necesita un stream para hacer call() aunque sea mudo
+function getFakeStream() {
+  const ac = new AudioContext();
+  const dest = ac.createMediaStreamDestination();
+  return dest.stream;
+}
+
+// ─── INIT ───
+window.addEventListener('DOMContentLoaded', () => {
+  showPage('mode-select');
+  // Mantener pantalla encendida si está disponible
+  if ('wakeLock' in navigator) {
+    navigator.wakeLock.request('screen').catch(() => {});
+  }
+});
+</script>
+</body>
+</html>
