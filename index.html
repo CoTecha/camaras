@@ -144,11 +144,17 @@ body{font-family:'Inter',sans-serif;background:var(--gd);color:white;min-height:
     <div style="flex:1;"><div class="visor-title">📷 CoTecha Cam</div><div id="visor-cam-id" style="font-size:0.65rem;color:rgba(255,255,255,.4);font-family:monospace;"></div></div>
     <span class="visor-status vs-connecting" id="visor-status">Conectando…</span>
   </div>
-  <div style="position:relative;height:calc(100vh - 80px);margin-top:48px;">
-    <video id="remote-video" autoplay playsinline style="width:100%;height:100%;object-fit:contain;background:#000;display:block;"></video>
+  <div style="position:relative;height:calc(100vh - 48px);margin-top:48px;">
+    <video id="remote-video" autoplay playsinline muted style="width:100%;height:100%;object-fit:contain;background:#000;display:block;"></video>
     <div class="no-signal" id="no-signal">
       <div class="icon">📡</div>
       <p>Conectando con la cámara…</p>
+    </div>
+    <!-- OVERLAY toca para reproducir -->
+    <div id="tap-overlay" onclick="tapPlay()" style="display:none;position:absolute;inset:0;background:rgba(0,0,0,0.7);flex-direction:column;align-items:center;justify-content:center;gap:1rem;cursor:pointer;z-index:10;">
+      <div style="font-size:4rem;">▶️</div>
+      <p style="color:white;font-size:1.1rem;font-weight:700;">Toca para ver la cámara</p>
+      <p style="color:rgba(255,255,255,.5);font-size:0.82rem;">El navegador requiere interacción</p>
     </div>
   </div>
 </div>
@@ -443,10 +449,26 @@ function conectar(peerId) {
     call.on('stream', remoteStream => {
       const vid = document.getElementById('remote-video');
       vid.srcObject = remoteStream;
-      vid.play().catch(e => console.warn('autoplay:', e));
+      vid.muted = true; // muted permite autoplay en móvil
+      vid.playsInline = true;
       noSig.style.display = 'none';
       document.getElementById('visor-status').className = 'visor-status vs-live';
       document.getElementById('visor-status').textContent = '● EN DIRECTO';
+
+      // Intentar autoplay
+      vid.play().then(() => {
+        document.getElementById('tap-overlay').style.display = 'none';
+      }).catch(() => {
+        // Autoplay bloqueado — mostrar overlay "toca para ver"
+        document.getElementById('tap-overlay').style.display = 'flex';
+      });
+
+      // También mostrar overlay por si acaso tras 1s sin imagen
+      setTimeout(() => {
+        if (vid.paused || vid.readyState < 2) {
+          document.getElementById('tap-overlay').style.display = 'flex';
+        }
+      }, 1000);
     });
 
     call.on('close', () => {
@@ -486,6 +508,13 @@ function conectar(peerId) {
 
 
 // PeerJS necesita un stream para hacer call() aunque sea mudo
+
+function tapPlay() {
+  const vid = document.getElementById('remote-video');
+  vid.play().then(() => {
+    document.getElementById('tap-overlay').style.display = 'none';
+  }).catch(e => console.warn('tapPlay error:', e));
+}
 
 // ─── INIT ───
 window.addEventListener('DOMContentLoaded', () => {
