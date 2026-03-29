@@ -141,7 +141,7 @@ body{font-family:'Inter',sans-serif;background:var(--gd);color:white;min-height:
 <div id="visor-page">
   <div class="visor-bar">
     <button class="btn-vsback" onclick="volverModo()">← Salir</button>
-    <span class="visor-title">📷 CoTecha Cam</span>
+    <div style="flex:1;"><div class="visor-title">📷 CoTecha Cam</div><div id="visor-cam-id" style="font-size:0.65rem;color:rgba(255,255,255,.4);font-family:monospace;"></div></div>
     <span class="visor-status vs-connecting" id="visor-status">Conectando…</span>
   </div>
   <div style="position:relative;height:calc(100vh - 80px);margin-top:48px;">
@@ -229,17 +229,20 @@ async function flipCamera() {
 }
 
 async function iniciarEmision() {
-  setStatus('waiting', 'Generando código…');
-  // Crear peer con ID aleatorio corto
-  const peerId = 'cam-' + Math.random().toString(36).substr(2, 8);
-  peer = new Peer(peerId, {
+  setStatus('waiting', 'Conectando con servidor…');
+  if (peer) { peer.destroy(); peer = null; }
+
+  // Peer sin ID fijo — PeerJS asigna uno aleatorio garantizado único
+  peer = new Peer({
     host: '0.peerjs.com',
     port: 443,
     path: '/',
     secure: true,
+    debug: 0,
     config: {
       iceServers: [
         { urls: 'stun:stun.l.google.com:19302' },
+        { urls: 'stun:stun1.l.google.com:19302' },
         { urls: 'stun:global.stun.twilio.com:3478' }
       ]
     }
@@ -270,8 +273,17 @@ async function iniciarEmision() {
     });
   });
 
+  peer.on('disconnected', () => {
+    if (peer && !peer.destroyed) peer.reconnect();
+  });
+
   peer.on('error', e => {
-    setStatus('error', 'Error: ' + e.message);
+    if (e.type === 'unavailable-id') {
+      // ID ocupado, reintentar
+      setTimeout(iniciarEmision, 500);
+    } else {
+      setStatus('error', 'Error: ' + e.type);
+    }
   });
 }
 
@@ -284,10 +296,17 @@ function generarQR(id) {
   const qrWrap = document.getElementById('qr-wrap');
   const qrCanvas = document.getElementById('qr-canvas');
   qrWrap.style.display = 'block';
+  // URL completa para que el visor no necesite login
+  const viewUrl = window.location.origin + window.location.pathname + '?view=' + id;
   document.getElementById('qr-id-text').textContent = id;
-  QRCode.toCanvas(qrCanvas, id, {
-    width: 160, margin: 1,
+  QRCode.toCanvas(qrCanvas, viewUrl, {
+    width: 180, margin: 1,
     color: { dark: '#000000', light: '#ffffff' }
+  }, function(err) {
+    if (err) {
+      // Fallback: intentar con solo el ID
+      QRCode.toCanvas(qrCanvas, id, { width: 180, margin: 1 });
+    }
   });
 }
 
@@ -333,10 +352,11 @@ function iniciarScanQR() {
     offCtx.drawImage(video, 0, 0);
     const imgData = offCtx.getImageData(0, 0, offCanvas.width, offCanvas.height);
     const code = jsQR(imgData.data, imgData.width, imgData.height, { inversionAttempts: 'dontInvert' });
-    if (code && code.data.startsWith('cam-')) {
+    let qrData = code ? code.data : null;
+    if (qrData && (qrData.includes('view=') || qrData.length > 5)) {
       clearInterval(scanInterval);
       scanInterval = null;
-      conectar(code.data);
+      conectar(qrData);
     }
   }, 250);
 }
@@ -348,44 +368,78 @@ function conectarConId() {
 }
 
 function conectar(peerId) {
+  // Limpiar peer ID si viene de URL completa
+  if (peerId.includes('?view=')) {
+    peerId = peerId.split('?view=')[1].split('&')[0];
+  }
+  if (peerId.includes('view=')) {
+    peerId = peerId.split('view=')[1].split('&')[0];
+  }
+  peerId = peerId.trim();
+
   if (scanStream) { scanStream.getTracks().forEach(t => t.stop()); scanStream = null; }
   if (scanInterval) { clearInterval(scanInterval); scanInterval = null; }
 
   showPage('visor-page');
-  document.getElementById('no-signal').style.display = 'flex';
+  const noSig = document.getElementById('no-signal');
+  noSig.style.display = 'flex';
+  noSig.querySelector('p').textContent = 'Conectando con cámara…';
   document.getElementById('visor-status').className = 'visor-status vs-connecting';
   document.getElementById('visor-status').textContent = 'Conectando…';
+  document.getElementById('visor-cam-id').textContent = 'ID: ' + peerId;
+
+  if (peer) { peer.destroy(); peer = null; }
 
   peer = new Peer({
-    host: '0.peerjs.com', port: 443, path: '/', secure: true,
-    config: { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] }
+    host: '0.peerjs.com', port: 443, path: '/', secure: true, debug: 0,
+    config: { iceServers: [
+      { urls: 'stun:stun.l.google.com:19302' },
+      { urls: 'stun:stun1.l.google.com:19302' }
+    ]}
   });
 
   peer.on('open', () => {
     const call = peer.call(peerId, getFakeStream());
+    if (!call) {
+      document.getElementById('visor-status').textContent = 'No se pudo conectar';
+      document.getElementById('visor-status').className = 'visor-status vs-lost';
+      return;
+    }
     call.on('stream', remoteStream => {
       const vid = document.getElementById('remote-video');
       vid.srcObject = remoteStream;
       vid.play().catch(() => {});
-      document.getElementById('no-signal').style.display = 'none';
+      noSig.style.display = 'none';
       document.getElementById('visor-status').className = 'visor-status vs-live';
       document.getElementById('visor-status').textContent = '● EN DIRECTO';
     });
     call.on('close', () => {
-      document.getElementById('no-signal').style.display = 'flex';
-      document.getElementById('no-signal').querySelector('p').textContent = 'Cámara desconectada';
+      noSig.style.display = 'flex';
+      noSig.querySelector('p').textContent = 'Cámara desconectada';
       document.getElementById('visor-status').className = 'visor-status vs-lost';
       document.getElementById('visor-status').textContent = 'Desconectado';
     });
-    call.on('error', () => {
+    call.on('error', err => {
       document.getElementById('visor-status').className = 'visor-status vs-lost';
       document.getElementById('visor-status').textContent = 'Error de conexión';
     });
+    // Timeout si no recibe stream en 15s
+    setTimeout(() => {
+      if (noSig.style.display !== 'none') {
+        noSig.querySelector('p').textContent = 'Sin respuesta — verifica que el emisor esté activo';
+      }
+    }, 15000);
   });
 
   peer.on('error', e => {
     document.getElementById('visor-status').className = 'visor-status vs-lost';
-    document.getElementById('visor-status').textContent = 'Error: ' + e.type;
+    if (e.type === 'peer-unavailable') {
+      document.getElementById('visor-status').textContent = 'Cámara no disponible';
+      noSig.querySelector('p').textContent = 'La cámara emisora no está activa. Asegúrate de que esté emitiendo.';
+    } else {
+      document.getElementById('visor-status').textContent = 'Error: ' + e.type;
+    }
+    noSig.style.display = 'flex';
   });
 }
 
@@ -398,6 +452,14 @@ function getFakeStream() {
 
 // ─── INIT ───
 window.addEventListener('DOMContentLoaded', () => {
+  // Si la URL contiene ?view= ir directo al visor sin login
+  const params = new URLSearchParams(window.location.search);
+  const viewId = params.get('view');
+  if (viewId) {
+    showPage('visor-page');
+    conectar(viewId);
+    return;
+  }
   showPage('mode-select');
   // Mantener pantalla encendida si está disponible
   if ('wakeLock' in navigator) {
