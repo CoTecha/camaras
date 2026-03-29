@@ -10,7 +10,7 @@
 <meta name="apple-mobile-web-app-title" content="CoTecha Cam">
 <title>CoTecha — Cámaras</title>
 <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
 <style>
 :root{--gd:#0d1117;--g:#40916c;--gl:#74c69d;--gp:#d8f3dc;--ta:#00b4d8;--red:#ef4444;--ow:#f8fdf9;--td:#1b2d24;--tm:#5a7a68;}
@@ -115,7 +115,7 @@ body{font-family:'Inter',sans-serif;background:var(--gd);color:white;min-height:
       <span class="viewers-badge" id="viewers-badge" style="display:none;">0 viendo</span>
     </div>
     <div class="qr-wrap" id="qr-wrap">
-      <canvas id="qr-canvas"></canvas>
+      <div id="qr-img-container" style="display:flex;justify-content:center;align-items:center;min-height:180px;"></div>
       <div class="qr-id" id="qr-id-text"></div>
       <div style="font-size:0.72rem;color:#94a3b8;margin-top:0.3rem;">Escanea desde el móvil visor</div>
     </div>
@@ -229,10 +229,9 @@ async function flipCamera() {
 }
 
 async function iniciarEmision() {
-  setStatus('waiting', 'Conectando con servidor…');
+  setStatus('waiting', '1/3 Conectando con servidor PeerJS…');
   if (peer) { peer.destroy(); peer = null; }
 
-  // Peer sin ID fijo — PeerJS asigna uno aleatorio garantizado único
   peer = new Peer({
     host: '0.peerjs.com',
     port: 443,
@@ -248,9 +247,20 @@ async function iniciarEmision() {
     }
   });
 
+  // Timeout de 10s si no conecta
+  const timeout = setTimeout(() => {
+    if (peer && !document.getElementById('qr-wrap').style.display.includes('block')) {
+      setStatus('error', 'Timeout — sin conexión al servidor. Reintentando…');
+      peer.destroy(); peer = null;
+      setTimeout(iniciarEmision, 2000);
+    }
+  }, 10000);
+
   peer.on('open', id => {
-    setStatus('waiting', 'Esperando conexión…');
+    clearTimeout(timeout);
+    setStatus('waiting', '2/3 Generando QR…');
     generarQR(id);
+    setStatus('waiting', 'Esperando conexión del visor…');
     document.getElementById('btn-start').className = 'btn-cam btn-stop';
     document.getElementById('btn-start').textContent = '⏹ Detener';
     document.getElementById('btn-start').onclick = detenerEmision;
@@ -265,7 +275,7 @@ async function iniciarEmision() {
     call.on('close', () => {
       activeConns = activeConns.filter(c => c !== call);
       actualizarViewers();
-      if (activeConns.length === 0) setStatus('waiting', 'Esperando conexión…');
+      if (activeConns.length === 0) setStatus('waiting', 'Esperando conexión del visor…');
     });
     call.on('error', () => {
       activeConns = activeConns.filter(c => c !== call);
@@ -274,15 +284,24 @@ async function iniciarEmision() {
   });
 
   peer.on('disconnected', () => {
-    if (peer && !peer.destroyed) peer.reconnect();
+    if (peer && !peer.destroyed) {
+      setStatus('waiting', 'Reconectando…');
+      peer.reconnect();
+    }
   });
 
   peer.on('error', e => {
+    clearTimeout(timeout);
     if (e.type === 'unavailable-id') {
-      // ID ocupado, reintentar
       setTimeout(iniciarEmision, 500);
+    } else if (e.type === 'network' || e.type === 'server-error') {
+      setStatus('error', 'Error de red — reintentando…');
+      setTimeout(iniciarEmision, 3000);
     } else {
-      setStatus('error', 'Error: ' + e.type);
+      setStatus('error', 'Error: ' + e.type + ' — pulsa Iniciar de nuevo');
+      document.getElementById('btn-start').className = 'btn-cam btn-start';
+      document.getElementById('btn-start').textContent = '▶ Iniciar emisión';
+      document.getElementById('btn-start').onclick = iniciarEmision;
     }
   });
 }
@@ -294,20 +313,28 @@ function detenerEmision() {
 
 function generarQR(id) {
   const qrWrap = document.getElementById('qr-wrap');
-  const qrCanvas = document.getElementById('qr-canvas');
   qrWrap.style.display = 'block';
-  // URL completa para que el visor no necesite login
   const viewUrl = window.location.origin + window.location.pathname + '?view=' + id;
   document.getElementById('qr-id-text').textContent = id;
-  QRCode.toCanvas(qrCanvas, viewUrl, {
-    width: 180, margin: 1,
-    color: { dark: '#000000', light: '#ffffff' }
-  }, function(err) {
-    if (err) {
-      // Fallback: intentar con solo el ID
-      QRCode.toCanvas(qrCanvas, id, { width: 180, margin: 1 });
-    }
-  });
+  // Usar QRCode con imagen en lugar de canvas — más fiable en móvil
+  const container = document.getElementById('qr-img-container');
+  container.innerHTML = '';
+  try {
+    new QRCode(container, {
+      text: viewUrl,
+      width: 180,
+      height: 180,
+      colorDark: '#000000',
+      colorLight: '#ffffff',
+      correctLevel: QRCode.CorrectLevel.M
+    });
+  } catch(e) {
+    // Fallback: API de QR externa
+    const img = document.createElement('img');
+    img.src = 'https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=' + encodeURIComponent(viewUrl);
+    img.width = 180; img.height = 180;
+    container.appendChild(img);
+  }
 }
 
 function actualizarViewers() {
